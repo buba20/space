@@ -1,0 +1,101 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Nazwa gałęzi do użycia')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'uat', 'prod'], description: 'Środowisko wdrożeniowe')
+        string(name: 'TAGS', defaultValue: '', description: 'Tagi do pobrania z Grafana (rozdzielone przecinkami)')
+    }
+
+    environment {
+        GRAFANA_API_URL = "https://grafana.example.com/api"
+        GIT_CREDENTIALS_ID = 'git-credentials-id' // ID poświadczeń Jenkins dla GIT
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Pobranie kodu z repozytorium GIT na podstawie podanego branża
+                checkout([$class: 'GitSCM', branches: [[name: "*/${params.BRANCH_NAME}"]], 
+                          doGenerateSubmoduleConfigurations: false, 
+                          extensions: [], 
+                          submoduleCfg: [], 
+                          userRemoteConfigs: [[url: 'https://your-repo-url.git', 
+                                               credentialsId: "${env.GIT_CREDENTIALS_ID}"]]])
+            }
+        }
+
+        stage('Fetch Grafana Dashboards') {
+            steps {
+                script {
+                    // Pobranie dashboardów z Grafana na podstawie tagów
+                    def tags = params.TAGS.split(',')
+                    def tagsQueryParam = tags.collect { "tag=${it}" }.join('&')
+                    sh """
+                        curl -u "${env.USERNAME}:${env.PASSWORD}" -G "${GRAFANA_API_URL}/search" \
+                        --data-urlencode "${tagsQueryParam}" \
+                        -o dashboards.json
+                    """
+                    echo "Pobrano dashboardy z Grafana dla tagów: ${params.TAGS}"
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                // Przykładowa komenda build
+                script {
+                    sh 'echo "Building the project..."'
+                    // Możesz tu dodać np. komendę do kompilacji: `./gradlew build` albo `mvn clean install`
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                // Przykładowe uruchomienie testów
+                script {
+                    sh 'echo "Running tests..."'
+                    // Możesz tu uruchomić swoje testy, np. `./gradlew test` albo `mvn test`
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                // Przykładowe wdrożenie na podstawie wybranego środowiska
+                script {
+                    sh "echo 'Deploying to ${params.ENVIRONMENT} environment...'"
+                    // Tu możesz dodać komendy do wdrażania, np. na serwer testowy/produkcyjny
+                }
+            }
+        }
+
+        stage('Clean Up') {
+            steps {
+                // Opcjonalny krok czyszczenia po wdrożeniu
+                script {
+                    sh 'echo "Cleaning up..."'
+                    // Komendy czyszczące, np. usunięcie plików tymczasowych
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Krok wykonywany zawsze po zakończeniu pipeline
+            echo 'Pipeline zakończony'
+        }
+
+        success {
+            // Krok wykonywany w przypadku sukcesu pipeline
+            echo 'Pipeline zakończony sukcesem'
+        }
+
+        failure {
+            // Krok wykonywany w przypadku niepowodzenia pipeline
+            echo 'Pipeline zakończony niepowodzeniem'
+        }
+    }
+}
