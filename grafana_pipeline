@@ -35,6 +35,37 @@ pipeline {
                         curl -u "${env.USERNAME}:${env.PASSWORD}" -G "${GRAFANA_API_URL}/search" \
                         --data-urlencode "${tagsQueryParam}" \
                         -o dashboards.json
+
+
+#!/bin/bash
+
+# Nazwa gałęzi przekazana jako argument
+BRANCH_NAME=$1
+
+if [ -z "$BRANCH_NAME" ]; then
+    echo "Proszę podać nazwę gałęzi jako argument."
+    exit 1
+fi
+
+# Sprawdzenie, czy jesteśmy na podanej gałęzi
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$CURRENT_BRANCH" == "$BRANCH_NAME" ]; then
+    echo "Jesteś już na gałęzi ${BRANCH_NAME}."
+else
+    # Sprawdzenie, czy gałąź istnieje na serwerze zdalnym
+    git fetch origin
+    if git show-ref --verify --quiet refs/remotes/origin/"$BRANCH_NAME"; then
+        echo "Gałąź ${BRANCH_NAME} istnieje na serwerze zdalnym. Przełączanie się..."
+        git checkout "$BRANCH_NAME"
+        git pull origin "$BRANCH_NAME"
+    else
+        echo "Gałąź ${BRANCH_NAME} nie istnieje na serwerze zdalnym. Tworzenie nowej gałęzi..."
+        git checkout -b "$BRANCH_NAME"
+        git push -u origin "$BRANCH_NAME"
+    fi
+fi
+
                     """
                     echo "Pobrano dashboardy z Grafana dla tagów: ${params.TAGS}"
                 }
