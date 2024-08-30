@@ -67,6 +67,41 @@ else
 fi
 
                     """
+
+
+#!/usr/bin/env pwsh
+
+# Nazwa gałęzi przekazana jako argument
+param (
+    [string]$BRANCH_NAME
+)
+
+if (-not $BRANCH_NAME) {
+    Write-Host "Proszę podać nazwę gałęzi jako argument."
+    exit 1
+}
+
+# Sprawdzenie, czy jesteśmy na podanej gałęzi
+$CURRENT_BRANCH = git rev-parse --abbrev-ref HEAD
+
+if ($CURRENT_BRANCH -eq $BRANCH_NAME) {
+    Write-Host "Jesteś już na gałęzi $BRANCH_NAME."
+} else {
+    # Sprawdzenie, czy gałąź istnieje na serwerze zdalnym
+    git fetch origin
+    $branchExists = git show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Gałąź $BRANCH_NAME istnieje na serwerze zdalnym. Przełączanie się..."
+        git checkout $BRANCH_NAME
+        git pull origin $BRANCH_NAME
+    } else {
+        Write-Host "Gałąź $BRANCH_NAME nie istnieje na serwerze zdalnym. Tworzenie nowej gałęzi..."
+        git checkout -b $BRANCH_NAME
+        git push -u origin $BRANCH_NAME
+    }
+}
+
                     echo "Pobrano dashboardy z Grafana dla tagów: ${params.TAGS}"
                 }
             }
