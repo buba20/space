@@ -1,83 +1,191 @@
-param (
-    [string[]]$Tags,
-    [string]$Username,
-    [string]$Password,
-    [string]$Environment
-)
-
-# Ustal URL API Grafany na podstawie środowiska
-switch ($Environment) {
-    "dev"    { $grafanaApiUrl = "https://grafana-dev.example.com/api" }
-    "uat"    { $grafanaApiUrl = "https://grafana-uat.example.com/api" }
-    "prod"   { $grafanaApiUrl = "https://grafana-prod.example.com/api" }
-    "leprod" { $grafanaApiUrl = "https://grafana-leprod.example.com/api" }
-    default  { Write-Error "Nieznane środowisko: $Environment"; exit 1 }
-}
-
-# Konwersja tagów na format wymagany przez API
-$tagsParam = $Tags -join ','
-
-# Zakodowanie danych logowania w formacie base64
-$encodedAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$Username:$Password"))
-
-# Ustawienie nagłówków z Basic Authentication
-$headers = @{
-    Authorization = "Basic $encodedAuth"
-}
-
-# Pobierz listę dashboardów na podstawie tagów
-$dashboards = Invoke-RestMethod -Uri "$grafanaApiUrl/search?tag=$tagsParam" -Method Get -Headers $headers
-
-# Główna ścieżka zapisu
-$baseDir = "C:\path\to\save\$Environment"
-
-# Funkcja do tworzenia struktury katalogów i zapisywania dashboardów
-function Save-Dashboard {
+function Remove-AccentsAndSpace {
     param (
-        [object]$dashboard
+        [string]$InputStr
     )
-    
-    # Pobierz dane dashboardu
-    $dashboardData = Invoke-RestMethod -Uri "$grafanaApiUrl/dashboards/uid/$($dashboard.uid)" -Method Get -Headers $headers
 
-    # Utwórz strukturę katalogów na podstawie folderu dashboardu
-    $folderPath = Join-Path -Path $baseDir -ChildPath $dashboard.folderTitle
-    if (-not (Test-Path $folderPath)) {
-        New-Item -Path $folderPath -ItemType Directory
+    $normalizedStr = [Text.NormalizationForm]::FormD.Normalize($InputStr)
+    $strWithoutAccents = -join ($normalizedStr.ToCharArray() | Where-Object { -not ([Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -eq "NonSpacingMark") })
+    return ($strWithoutAccents -replace '\s+', '_')
+}
+
+class GrafanaDashboardNotFoundError {
+    [string]$Dashboard
+    [string]$Folder
+    [string]$Message
+
+    GrafanaDashboardNotFoundError([string]$dashboardName, [string]$folder, [string]$message) {
+        $this.Dashboard = $dashboardName
+        $this.Folder = $folder
+        $this.Message = $message
+    }
+}
+
+class GrafanaFolderNotFoundError {
+    [string]$Folder
+    [string]$Message
+
+    GrafanaFolderNotFoundError([string]$folder, [string]$message) {
+        $this.Folder = $folder
+        $this.Message = $message
+    }
+}
+
+class Grafana {
+    [string]$GrafanaUrl
+    [string]$Username
+    [string]$Password
+    [string]$GrafanaFolder = "General"
+    [int]$SearchApiLimit = 5000
+    [bool]$Overwrite = $true
+    [bool]$AllowNew = $false
+    [System.Collections.ArrayList]$Folders = @()
+    [System.Collections.ArrayList]$Dashboards = @()
+
+    Grafana([string]$url, [string]$username, [string]$password, [string]$folder = "General", [int]$limit = 5000, [bool]$overwrite = $true, [bool]$allowNew = $false) {
+        $this.GrafanaUrl = $url
+        $this.Username = $username
+        $this.Password = $password
+        $this.GrafanaFolder = $folder
+        $this.SearchApiLimit = $limit
+        $this.Overwrite = $overwrite
+        $this.AllowNew = $allowNew
+
+        $health = Invoke-WebRequest -Uri "$($this.GrafanaUrl)/api/health" -Credential (New-Object PSCredential($this.Username, (ConvertTo-SecureString $this.Password -AsPlainText -Force))) -UseBasicParsing | ConvertFrom-Json
+        if ($health.database -ne "ok") {
+            throw "Grafana is not UP"
+        }
     }
 
-    # Ustal nazwę pliku (title dashboardu)
-    $filePath = Join-Path -Path $folderPath -ChildPath "$($dashboard.title).json"
+    [pscustomobject]Find-Dashboard([string]$dashboardName) {
+        if ($this.Dashboards.Count -eq 0) {
+            $this.Dashboards = Invoke-WebRequest -Uri "$($this.GrafanaUrl)/api/search?type=dash-db&limit=$($this.SearchApiLimit)" -Credential (New-Object PSCredential($this.Username, (ConvertTo-SecureString $this.Password -AsPlainText -Force))) -UseBasicParsing | ConvertFrom-Json
+        }
 
-    # Zapisz dashboard jako plik JSON
-    $dashboardData | ConvertTo-Json -Depth 10 | Out-File -FilePath $filePath
-}
+        $folder = @{ id = 0; title = "General" }
+        if ($this.GrafanaFolder -notmatch "general") {
+            $foundFolder = $this.Get-Folder($this.GrafanaFolder)
+            if ($foundFolder -ne $null) {
+                $folder = $foundFolder
+            }
+        }
 
-# Iteracja przez każdy dashboard i zapisanie go
-foreach ($dashboard in $dashboards) {
-    Save-Dashboard -dashboard $dashboard
-}
+        $board = $null
+        foreach ($curDash in $this.Dashboards) {
+            if ($curDash.title -eq $dashboardName) {
+                $board = $curDash
+                if (($curDash.folderTitle -eq $folder.title) -or (-not $curDash.ContainsKey("folderTitle") -and $folder.id -eq 0)) {
+                    break
+                }
+            }
+        }
 
-Write-Host "Zakończono pobieranie i zapisywanie dashboardów."
+        return $board
+    }
 
-# Przejdź do katalogu repozytorium Git
-Set-Location -Path "C:\path\to\your\git\repository"
+    [pscustomobject]Export-Dashboard([string]$dashboardName) {
+        $board = $this.Find-Dashboard($dashboardName)
+        if ($board -eq $null) {
+            throw [GrafanaDashboardNotFoundError]::new($dashboardName, $this.GrafanaFolder, "Dashboard not found: $dashboardName")
+        }
 
-# Sprawdź aktualny branch
-$currentBranch = git rev-parse --abbrev-ref HEAD
+        $dashboard = Invoke-WebRequest -Uri "$($this.GrafanaUrl)/api/dashboards/uid/$($board.uid)" -Credential (New-Object PSCredential($this.Username, (ConvertTo-SecureString $this.Password -AsPlainText -Force))) -UseBasicParsing | ConvertFrom-Json
+        return $dashboard
+    }
 
-if ($currentBranch -eq "FeatureBranch") {
-    # Jeśli jesteśmy na FeatureBranch, po prostu commit i push
-    git add -A
-    git commit -m "Dodano dane z Grafany dla środowiska $Environment z tagami: $tagsParam"
-    git push
-} elseif ($currentBranch -eq "develop" -or $currentBranch -eq "master") {
-    # Jeśli jesteśmy na develop lub master, utwórz nowy FeatureBranch
-    $newBranchName = "FeatureBranch-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-    git checkout -b $newBranchName
-    git add -A
-    git commit -m "Dodano dane z Grafany dla środowiska $Environment z tagami: $tagsParam"
-    git push -u origin $newBranchName
-} else {
-    Write-Host "Aktualny branch: $currentBranch - brak akcji do wykonania."
-}
+    [pscustomobject]Remove-Dashboard([string]$dashboardName) {
+        $folder = @{ id = 0; title = $this.GrafanaFolder }
+        if ($this.GrafanaFolder -notmatch "general") {
+            $folder = $this.Get-Folder($this.GrafanaFolder)
+            if ($folder -eq $null) {
+                throw [GrafanaFolderNotFoundError]::new($this.GrafanaFolder, "Folder not found: $($this.GrafanaFolder)")
+            }
+        }
+
+        $board = $this.Find-Dashboard($dashboardName)
+        if ($board -eq $null) {
+            throw [GrafanaDashboardNotFoundError]::new($dashboardName, $folder.title, "Dashboard not found")
+        }
+
+        if ($folder.id -eq 0 -and $board.folderId -ne $folder.id) -or ($folder.id -ne 0 -and -not $board.ContainsKey("folderId")) {
+            throw "Dashboard name found but in folder '$($board.folderTitle)'!"
+        }
+
+        $result = Invoke-WebRequest -Uri "$($this.GrafanaUrl)/api/dashboards/uid/$($board.uid)" -Method DELETE -Credential (New-Object PSCredential($this.Username, (ConvertTo-SecureString $this.Password -AsPlainText -Force))) -UseBasicParsing | ConvertFrom-Json
+        return $result
+    }
+
+    [pscustomobject]Get-Folder([string]$folderName = $null, [string]$folderUid = $null) {
+        if ($folderName -eq $null -and $folderUid -eq $null) {
+            return $null
+        }
+
+        if ($this.Folders.Count -eq 0) {
+            $this.Folders = Invoke-WebRequest -Uri "$($this.GrafanaUrl)/api/folders" -Credential (New-Object PSCredential($this.Username, (ConvertTo-SecureString $this.Password -AsPlainText -Force))) -UseBasicParsing | ConvertFrom-Json
+        }
+
+        foreach ($tmpFolder in $this.Folders) {
+            if (($folderName -ne $null -and $tmpFolder.title -eq $folderName) -or ($folderUid -ne $null -and $tmpFolder.uid -eq $folderUid)) {
+                return $tmpFolder
+            }
+        }
+
+        return $null
+    }
+
+    [bool]Import-Dashboard([pscustomobject]$dashboard) {
+        $newDash = @{
+            dashboard = $dashboard
+            overwrite = $true
+        }
+
+        $oldDash = $this.Find-Dashboard($dashboard.title)
+
+        if ($oldDash -eq $null) {
+            $newDash.overwrite = $this.Overwrite
+            $dashboard.version = 1
+        }
+
+        if ($this.GrafanaFolder -match "general") {
+            $newDash.folderUid = "0"
+        } else {
+            $folder = $this.Get-Folder($this.GrafanaFolder)
+            if ($folder -eq $null) {
+                $folder = Invoke-WebRequest -Uri "$($this.GrafanaUrl)/api/folders" -Method POST -Body (ConvertTo-Json @{ title = $this.GrafanaFolder }) -Credential (New-Object PSCredential($this.Username, (ConvertTo-SecureString $this.Password -AsPlainText -Force))) -UseBasicParsing | ConvertFrom-Json
+
+                if ($folder) {
+                    $newDash.folderUid = $folder.uid
+                } else {
+                    throw "KO: Grafana folder '$($this.GrafanaFolder)' creation failed."
+                }
+            } else {
+                $newDash.folderUid = $folder.uid
+            }
+        }
+
+        if ($oldDash -ne $null) {
+            if ($newDash.folderUid -ne $oldDash.folderUid) {
+                if ($this.AllowNew) {
+                    $newDash.overwrite = $false
+                    $newDash.dashboard.uid = $null
+                    $newDash.dashboard.id = $null
+                } else {
+                    throw "Dashboard with the same title already exists in another folder. Use `AllowNew` to permit creation in a different folder."
+                }
+            } elseif ($newDash.folderUid -eq $oldDash.folderUid) {
+                if ($newDash.dashboard.uid -ne $oldDash.uid) {
+                    if ($this.Overwrite) {
+                        $newDash.dashboard.uid = $oldDash.uid
+                        $newDash.dashboard.id = $oldDash.id
+                    } else {
+                        throw "Dashboard with the same title already exists in this folder with another uid. Use `Overwrite` to permit overwriting it."
+                    }
+                }
+            }
+        } else {
+            $newDash.dashboard.uid = $null
+            $newDash.dashboard.id = $null
+            $newDash.overwrite = $false
+        }
+
+        $newDash.message = "imported from Grafana."
+        $result = Invoke-WebRequest
