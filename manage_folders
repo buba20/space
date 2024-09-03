@@ -1,0 +1,86 @@
+param (
+    [string]$grafanaUrl = "http://localhost:3000",   # URL Grafany
+    [string]$username = "admin",                     # Nazwa użytkownika
+    [string]$password = "admin",                     # Hasło użytkownika
+    [string]$folderPath                              # Ścieżka katalogów np. "\Test\Test Nested\"
+)
+
+# Funkcja do uzyskania listy folderów z Grafany
+function Get-GrafanaFolders {
+    param (
+        [string]$url,
+        [string]$username,
+        [string]$password
+    )
+    $response = Invoke-WebRequest -Uri "$url/api/folders" -Method Get -Headers @{
+        Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$username`:$password"))
+    }
+    return $response.Content | ConvertFrom-Json
+}
+
+# Funkcja do tworzenia folderu na Grafanie
+function Create-GrafanaFolder {
+    param (
+        [string]$url,
+        [string]$username,
+        [string]$password,
+        [string]$folderName,
+        [string]$folderUid
+    )
+    $folderData = @{
+        title = $folderName
+        uid   = $folderUid
+    } | ConvertTo-Json
+
+    $response = Invoke-WebRequest -Uri "$url/api/folders" -Method Post -Headers @{
+        Authorization = "Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$username`:$password"))
+    } -Body $folderData -ContentType "application/json"
+
+    return $response.Content | ConvertFrom-Json
+}
+
+# Główna funkcja do zarządzania strukturą folderów
+function Manage-GrafanaFolderStructure {
+    param (
+        [string]$url,
+        [string]$username,
+        [string]$password,
+        [string]$folderPath
+    )
+
+    $folders = Get-GrafanaFolders -url $url -username $username -password $password
+
+    # Podziel ścieżkę na poszczególne foldery
+    $pathParts = $folderPath -split '\\' | Where-Object { $_ -ne "" }
+
+    $parentFolderUid = $null
+    $parentFolderId = 0
+
+    foreach ($folderName in $pathParts) {
+        # Sprawdź, czy folder istnieje
+        $existingFolder = $folders | Where-Object { $_.title -eq $folderName -and $_.folderId -eq $parentFolderId }
+
+        if ($existingFolder) {
+            $parentFolderUid = $existingFolder.uid
+            $parentFolderId = $existingFolder.id
+        } else {
+            # Utwórz nowy folder jeśli nie istnieje
+            $newFolderUid = [System.Guid]::NewGuid().ToString()
+            $newFolder = Create-GrafanaFolder -url $url -username $username -password $password -folderName $folderName -folderUid $newFolderUid
+            $parentFolderUid = $newFolder.uid
+            $parentFolderId = $newFolder.id
+
+            # Dodaj nowo utworzony folder do lokalnej listy folderów
+            $folders += $newFolder
+        }
+    }
+
+    # Zwróć UID najniższego folderu
+    return $parentFolderUid
+}
+
+# Wywołanie funkcji
+$finalFolderUid = Manage-GrafanaFolderStructure -url $grafanaUrl -username $username -password $password -folderPath $folderPath
+
+# Zwrócenie UID najniższego folderu
+Write-Output "Folder UID: $finalFolderUid"
