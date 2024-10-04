@@ -1,0 +1,42 @@
+from flask import Flask, Response
+import requests
+
+app = Flask(__name__)
+
+# Endpoint external-service from which we fetch Prometheus metrics
+EXTERNAL_METRICS_URL = "http://external-service/metrics"
+
+# Custom metrics in Prometheus format
+def custom_metrics():
+    # Example custom metrics in Prometheus format (text format)
+    metrics = """
+# HELP custom_metric_1 Example custom metric 1
+# TYPE custom_metric_1 gauge
+custom_metric_1 100
+
+# HELP custom_metric_2 Example custom metric 2
+# TYPE custom_metric_2 gauge
+custom_metric_2 200
+"""
+    return metrics
+
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    try:
+        # Fetch external metrics in Prometheus format (text)
+        response = requests.get(EXTERNAL_METRICS_URL)
+        response.raise_for_status()  # Raise an error for bad responses
+        external_metrics = response.text  # Assume response is in Prometheus text format
+
+        # Add custom metrics to the external metrics
+        all_metrics = external_metrics + custom_metrics()
+
+        # Return the combined metrics to the client
+        return Response(all_metrics, mimetype='text/plain'), 200
+
+    except requests.exceptions.RequestException as e:
+        # If there is any issue with fetching external metrics, return an error
+        return Response(f"Error fetching external metrics: {str(e)}", mimetype='text/plain'), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
