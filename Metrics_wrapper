@@ -1,34 +1,49 @@
 from flask import Flask, Response
 import requests
+import os
 
 app = Flask(__name__)
 
-# Endpoint external-service from which we fetch Prometheus metrics
+# Path to the directory we want to monitor
+MONITORED_DIRECTORY = "/path/to/your/directory"
+
+# External metrics endpoint
 EXTERNAL_METRICS_URL = "http://external-service/metrics"
 
-# Custom metrics in Prometheus format
+# Custom metrics for storage in Prometheus format
 def custom_metrics():
-    # Example custom metrics in Prometheus format (text format)
-    metrics = """
-# HELP custom_metric_1 Example custom metric 1
-# TYPE custom_metric_1 gauge
-custom_metric_1 100
+    stats = os.statvfs(MONITORED_DIRECTORY)
+    
+    # Calculate total space, used space, and available space in bytes
+    total_space = stats.f_blocks * stats.f_frsize
+    available_space = stats.f_bavail * stats.f_frsize
+    used_space = total_space - available_space
 
-# HELP custom_metric_2 Example custom metric 2
-# TYPE custom_metric_2 gauge
-custom_metric_2 200
+    # Return the storage metrics in Prometheus text format
+    metrics = f"""
+# HELP storage_used_bytes The total amount of used space in bytes
+# TYPE storage_used_bytes gauge
+storage_used_bytes {used_space}
+
+# HELP storage_available_bytes The total amount of available space in bytes
+# TYPE storage_available_bytes gauge
+storage_available_bytes {available_space}
+
+# HELP storage_total_bytes The total amount of space in bytes
+# TYPE storage_total_bytes gauge
+storage_total_bytes {total_space}
 """
     return metrics
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
     try:
-        # Fetch external metrics in Prometheus format (text)
+        # Fetch external metrics in Prometheus format
         response = requests.get(EXTERNAL_METRICS_URL)
         response.raise_for_status()  # Raise an error for bad responses
         external_metrics = response.text  # Assume response is in Prometheus text format
 
-        # Add custom metrics to the external metrics
+        # Add custom storage metrics to the external metrics
         all_metrics = external_metrics + custom_metrics()
 
         # Return the combined metrics to the client
