@@ -167,10 +167,112 @@ User: Yes, please prepare a .NET6 code example that reads CPU usage from
 reusable NuGet library with a simple method to integrate into existing
 projects.
 
-Assistant: (Provides reusable library code for .NET6 that exposes
-`cgroup.cpu.usage` metric via OTEL, with instructions for packaging into
-a NuGet library.)
+Assistant: 
 
+**API o fa Library**
+```cshapr
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics.AddRuntimeInstrumentation()
+               .AddCgroupCpuInstrumentation(); // 👈 nasza biblioteka
+    });
+```
+**Implemntation**
+```cshapr
+using System.Diagnostics.Metrics;
+using System.Runtime.InteropServices;
+
+namespace CgroupMetrics;
+
+public static class CgroupCpuInstrumentationExtensions
+{
+    public static MeterProviderBuilder AddCgroupCpuInstrumentation(this MeterProviderBuilder builder)
+    {
+        var meter = new Meter("CgroupMetrics.Cpu", "1.0.0");
+        var cpuGauge = meter.CreateObservableGauge("cgroup.cpu.usage",
+            () => new Measurement<double>(CgroupReader.GetCpuUsageCores()),
+            unit: "cores",
+            description: "CPU usage of the container based on cgroups");
+
+        builder.AddMeter(meter.Name);
+        return builder;
+    }
+}
+
+internal static class CgroupReader
+{
+    private static long _lastUsageNs = 0;
+    private static DateTime _lastRead = DateTime.UtcNow;
+
+    public static double GetCpuUsageCores()
+    {
+        try
+        {
+            long usageNs = ReadUsage();
+            var now = DateTime.UtcNow;
+
+            var deltaUsage = usageNs - _lastUsageNs;
+            var deltaTime = (now - _lastRead).TotalSeconds;
+
+            _lastUsageNs = usageNs;
+            _lastRead = now;
+
+            if (deltaTime <= 0 || deltaUsage < 0)
+                return 0;
+
+            // Nanoseconds → seconds
+            double cpuSeconds = deltaUsage / 1_000_000_000.0;
+            double usageCores = cpuSeconds / deltaTime;
+
+            return usageCores;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static long ReadUsage()
+    {
+        // Try cgroups v1
+        var v1Path = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+        if (File.Exists(v1Path))
+        {
+            var content = File.ReadAllText(v1Path).Trim();
+            if (long.TryParse(content, out var ns))
+                return ns;
+        }
+
+        // Try cgroups v2
+        var v2Path = "/sys/fs/cgroup/cpu.stat";
+        if (File.Exists(v2Path))
+        {
+            var lines = File.ReadAllLines(v2Path);
+            var usageLine = lines.FirstOrDefault(l => l.StartsWith("usage_usec"));
+            if (usageLine != null)
+            {
+                var parts = usageLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2 && long.TryParse(parts[1], out var usec))
+                    return usec * 1000; // convert microseconds → nanoseconds
+            }
+        }
+
+        return 0;
+    }
+}
+```
+How it works
+
+CgroupReader.ReadUsage() checks cgroups v1 (cpuacct.usage), then v2 (cpu.stat).
+
+return CPU time in nanoseconds.
+
+GetCpuUsageCores() calculate change in time (CPU seconds/delta).
+
+result = number of cores effectively occupied (e.g. 0.25 = 25% of one core, 2.0 = two full cores).
+
+The library registers ObservableGauge in OpenTelemetry, thanks to which Prometheus reads the current usage.
 ------------------------------------------------------------------------
 
 User: Ok, please also add memory metrics.
