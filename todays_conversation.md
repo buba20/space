@@ -178,8 +178,10 @@ builder.Services.AddOpenTelemetry()
                .AddCgroupCpuInstrumentation(); // 👈 nasza biblioteka
     });
 ```
+
 **Implemntation**
-```cshapr
+
+```cs
 using System.Diagnostics.Metrics;
 using System.Runtime.InteropServices;
 
