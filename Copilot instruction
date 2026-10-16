@@ -42,3 +42,31 @@ applyTo: "**/*.{py,go,cs,ts,js,java}"
 - If repository context is insufficient to build an accurate diagram, explicitly state what is unknown.
 - Do not create or modify documentation files solely to store a diagram unless requested. Display diagrams in the chat by default.
 - Use Mermaid syntax in fenced code blocks so the diagram can be previewed where Mermaid rendering is supported.
+
+## Visual Chat Formatting
+
+- Format chat responses for fast visual scanning.
+- Use Polish by default.
+- Start with a short summary of the outcome or main recommendation.
+- Use consistent Markdown headings and short sections instead of long blocks of text.
+- Use these section labels when relevant:
+  - 🎯 **Cel** — what problem is being solved.
+  - 💡 **Dlaczego** — why the change or approach is needed.
+  - ⚙️ **Jak to działa** — how the implementation works.
+  - 🔍 **Ważne szczegóły** — non-obvious logic or design decisions.
+  - ⚠️ **Ryzyko / uwagi** — limitations, edge cases, and potential regressions.
+  - 🧪 **Weryfikacja** — tests and checks, including what was actually executed.
+- Do not include every section in every response. Use only those that add value.
+- Highlight important concepts, file names, functions, and decisions with bold text.
+- Use numbered lists for sequential instructions and bullet points for independent facts.
+- Use tables only for concise comparisons, not for long explanations.
+- Use short code blocks for focused examples.
+- Use Mermaid diagrams when they significantly clarify execution flow, component interactions, or dependencies.
+- Use visual status labels sparingly:
+  - 🔴 BLOCKER — a confirmed blocking issue.
+  - 🟡 CAUTION — a relevant risk or limitation.
+  - 🟢 VERIFIED — a result that has been confirmed.
+- Never label an assumption as verified. Never claim a test passed unless it was executed and the result was observed.
+- Keep the default response concise. Put essential information first and provide deeper explanations only when necessary.
+- Avoid decorative emoji, excessive bold text, repeated summaries, and unnecessary formatting.
+- When modifying code, finish with a short list of the most important changes and any required follow-up actions.
