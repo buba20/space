@@ -1,0 +1,22 @@
+---
+name: Code Explanation
+description: Instructions for generating and modifying code that must be easy to understand and maintain.
+applyTo: "**/*.{py,go,cs,ts,js,java}"
+---
+
+# Code Explanation Rules
+
+- Optimize for human comprehension, not minimum line count.
+- Make control flow explicit and easy to follow.
+- Avoid combining several unrelated operations into one expression.
+- Avoid unnecessary ternary operators, chained transformations, nested callbacks, and clever language features when a simpler alternative is available.
+- Explain the purpose of non-obvious conditions, loops, transformations, and intermediate variables.
+- When introducing an abstraction, explain what complexity it hides and why the abstraction is beneficial.
+- When adding a dependency, explain what it provides and why the existing tools are insufficient.
+- When handling errors, explain which failure scenarios are expected and how they are handled.
+- For asynchronous or concurrent code, explain execution order, synchronization, and possible race conditions where relevant.
+- For non-trivial functions, make the input, output, side effects, and responsibility easy to identify.
+- Keep comments focused on intent and non-obvious constraints. Avoid redundant comments.
+- When modifying existing code, distinguish new behavior from preserved behavior.
+- Do not sacrifice correctness, security, performance requirements, or established project conventions for superficial simplicity.
+- If two implementations are similarly effective, prefer the one that is easier for an unfamiliar developer to understand.
