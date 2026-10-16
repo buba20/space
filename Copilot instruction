@@ -20,3 +20,25 @@ applyTo: "**/*.{py,go,cs,ts,js,java}"
 - When modifying existing code, distinguish new behavior from preserved behavior.
 - Do not sacrifice correctness, security, performance requirements, or established project conventions for superficial simplicity.
 - If two implementations are similarly effective, prefer the one that is easier for an unfamiliar developer to understand.
+
+
+## Visual Explanations and Diagrams
+
+- Use diagrams when they materially improve understanding of code, control flow, dependencies, data transformations, or interactions between components.
+- Prefer Mermaid diagrams because they can be represented as text, reviewed in Git, and rendered in compatible Markdown viewers.
+- Select the diagram type based on the problem:
+  - Flowchart for conditional logic, loops, validation, and error handling.
+  - Sequence diagram for interactions between functions, services, APIs, databases, and external systems.
+  - Component or dependency diagram for architecture, module responsibilities, and relationships.
+  - Data flow diagram for inputs, transformations, outputs, and data movement.
+- Do not generate diagrams for trivial changes or self-explanatory functions.
+- Introduce each diagram with one sentence explaining what it helps the reader understand.
+- Keep diagrams small, readable, and focused on one concept. Split large diagrams into smaller ones.
+- Use meaningful labels that explain the purpose of each step or component.
+- Include important error paths and alternative flows when they affect behavior.
+- After a diagram, briefly explain the most important relationships and why they matter.
+- When explaining unfamiliar code, prefer showing the execution flow before describing implementation details.
+- When analyzing existing code, base diagrams on verified code and actual dependencies. Do not invent components or interactions.
+- If repository context is insufficient to build an accurate diagram, explicitly state what is unknown.
+- Do not create or modify documentation files solely to store a diagram unless requested. Display diagrams in the chat by default.
+- Use Mermaid syntax in fenced code blocks so the diagram can be previewed where Mermaid rendering is supported.
